@@ -14,6 +14,12 @@ const SpeechVideoPlayer = () => {
   const [infoBoxContent, setInfoBoxContent] = useState('');
   const [matchedPhones, setMatchedPhones] = useState([]);
   const [wikiInfo, setWikiInfo] = useState(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [chatResponse, setChatResponse] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [useChatMode, setUseChatMode] = useState(false);
+
 
 
 
@@ -197,6 +203,28 @@ const SpeechVideoPlayer = () => {
     ]
   };
 
+  const handleChatSubmit = async () => {
+    if (!chatInput.trim()) return;
+
+    setChatLoading(true);
+    try {
+      const prompt = `Please reply only in Hindi without translation: ${chatInput}`;
+      const response = await generateGeminiResponse(prompt);
+
+      if (response && response.trim()) {
+        setChatResponse(response);
+        speakResponse(response); 
+      } else {
+        setChatResponse("माफ़ कीजिए, कृपया फिर से कहें।");
+      }
+    } catch (err) {
+      setChatResponse("कुछ गलत हो गया। कृपया पुनः प्रयास करें।");
+    } finally {
+      setChatLoading(false);
+      setChatInput('');
+    }
+  };
+
   const startListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
@@ -275,103 +303,105 @@ const SpeechVideoPlayer = () => {
       setIsLoading(false);
     }
     setInfoBoxContent(`You asked about: "${userText}". Here's some extra info coming soon...`);
-    // Detect phones from user input
-const lowerText = userText.toLowerCase();
-const matched = [];
 
-smartphoneMallData.stores.forEach(store => {
-  store.products.forEach(product => {
-    if (
-      lowerText.includes(product.brand.toLowerCase()) ||
-      lowerText.includes(product.model.toLowerCase()) ||
-      lowerText.includes("mobile") ||
-      lowerText.includes("phone")
-    ) {
-      matched.push({ ...product, store: store.name, floor: store.floor, shopNumber: store.shopNumber });
-    }
-  });
-});
+    const lowerText = userText.toLowerCase();
+    const matched = [];
 
-setMatchedPhones(matched);
-await fetchWikipediaSummary(userText);
+    smartphoneMallData.stores.forEach(store => {
+      store.products.forEach(product => {
+        if (
+          lowerText.includes(product.brand.toLowerCase()) ||
+          lowerText.includes(product.model.toLowerCase()) ||
+          lowerText.includes("mobile") ||
+          lowerText.includes("phone")
+        ) {
+          matched.push({ ...product, store: store.name, floor: store.floor, shopNumber: store.shopNumber });
+        }
+      });
+    });
+
+    setMatchedPhones(matched);
+    await fetchWikipediaSummary(userText);
 
 
   };
 
   const triggerGifResponse = (duration) => {
     setShowResponse(true);
-    setHasResponded(true); 
+    setHasResponded(true);
     setTimeout(() => {
       setShowResponse(false);
     }, duration);
   };
   const fetchWikipediaSummary = async (query) => {
-  try {
-    const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`);
-    const data = await res.json();
+    try {
+      const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`);
+      const data = await res.json();
 
-    if (data.title && data.extract) {
-      setWikiInfo({
-        title: data.title,
-        extract: data.extract,
-        image: data.thumbnail?.source || null
-      });
-    } else {
+      if (data.title && data.extract) {
+        setWikiInfo({
+          title: data.title,
+          extract: data.extract,
+          image: data.thumbnail?.source || null
+        });
+      } else {
+        setWikiInfo(null);
+      }
+    } catch (error) {
+      console.error("Wikipedia fetch failed:", error);
       setWikiInfo(null);
     }
-  } catch (error) {
-    console.error("Wikipedia fetch failed:", error);
-    setWikiInfo(null);
-  }
-};
+  };
 
   return (
     <div className="speech-container">
-      {isSpeaking && !showResponse && (
-        <h2>Speak something and the character will respond</h2>
-      )}
+
+      <h2>Speak something and the character will respond</h2>
 
       <div className={`video-wrapper ${hasResponded ? 'minimized' : ''}`}>
+        {isSpeaking && !showResponse && <div className="pulse-ring"></div>}
         <img src={showResponse ? responseGif : listeningGif} alt="GIF" className="gif" />
       </div>
-      {/* {hasResponded && (
-  <div className="empty-center-box">
-    {matchedPhones.length > 0 ? (
-      matchedPhones.map((phone, index) => (
-        <div key={index} className="phone-card">
-          <img src={phone.image} alt={phone.model} />
-          <h4>{phone.brand} {phone.model}</h4>
-          <p><strong>Store:</strong> {phone.store}</p>
-          <p><strong>Price:</strong> {phone.price}</p>
-          <p><strong>Specs:</strong> {phone.specs.processor}, {phone.specs.screen}, {phone.specs.camera}</p>
-        </div>
-      ))
-    ) : (
-      <p>No mobile matches found for your query.</p>
-    )}
-  </div>
-)} */}
-
-  {hasResponded && (
-  <div className="empty-center-box">
-    {wikiInfo ? (
-      <>
-        {wikiInfo.image && <img src={wikiInfo.image} alt={wikiInfo.title} className="wiki-image" />}
-        <h3>{wikiInfo.title}</h3>
-        <p>{wikiInfo.extract}</p>
-      </>
-    ) : (
-      <p>No related info found.</p>
-    )}
-  </div>
-)}
-
-
-
-
       {responseText && (
         <div className="left-response">
           <strong>Gemini:</strong> {responseText}
+        </div>
+      )}
+
+
+      {(hasResponded || useChatMode) && (
+        <div className="empty-center-box">
+          {useChatMode ? (
+            // 👉 Chat Mode UI
+            <div className="chat-ui">
+              <input
+                type="text"
+                placeholder="Type your question..."
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleChatSubmit()}
+              />
+              <button onClick={handleChatSubmit} disabled={chatLoading}>
+                {chatLoading ? 'Sending...' : 'Send'}
+              </button>
+              {chatResponse && (
+                <div className="chat-response">
+                  <strong>Gemini:</strong> {chatResponse}
+                </div>
+              )}
+            </div>
+          ) : (
+            // 👉 Default Wiki Info
+            wikiInfo ? (
+              <>
+                {wikiInfo.image && <img src={wikiInfo.image} alt={wikiInfo.title} className="wiki-image" />}
+                <h3>{wikiInfo.title}</h3>
+                <p>{wikiInfo.extract}</p>
+              </>
+            ) : (
+              <p>No related info found.</p>
+            )
+          )}
         </div>
       )}
 
@@ -387,8 +417,36 @@ await fetchWikipediaSummary(userText);
             Reset View
           </button>
         )}
-      </div>
+        <button onClick={() => setUseChatMode(!useChatMode)}>
+          {useChatMode ? 'Use Voice Instead' : 'Chat Instead'}
+        </button>
 
+        {isChatOpen && (
+          <div className="chat-box">
+            <div className="cub-wrapper">
+              <img src={listeningGif} alt="Cub" className="cub-image" />
+            </div>
+            <div className="chat-ui">
+              <input
+                type="text"
+                placeholder="Type your question..."
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleChatSubmit()}
+              />
+              <button onClick={handleChatSubmit} disabled={chatLoading}>
+                {chatLoading ? 'Sending...' : 'Send'}
+              </button>
+              {chatResponse && (
+                <div className="chat-response">
+                  <strong>Gemini:</strong> {chatResponse}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+      </div>
     </div>
 
   );
